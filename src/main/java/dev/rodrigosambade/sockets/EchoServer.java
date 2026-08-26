@@ -1,3 +1,87 @@
 package dev.rodrigosambade.sockets;
-import java.io.*;import java.net.*;import java.nio.charset.StandardCharsets;import java.util.concurrent.*;
-public final class EchoServer implements AutoCloseable {private final ServerSocket server;private final ExecutorService clients=Executors.newFixedThreadPool(Math.max(2,Runtime.getRuntime().availableProcessors()));private volatile boolean running=true;public EchoServer(int port)throws IOException{server=new ServerSocket();server.bind(new InetSocketAddress("0.0.0.0",port));}public int port(){return server.getLocalPort();}public void serve()throws IOException{while(running){try{Socket socket=server.accept();clients.submit(()->handle(socket));}catch(SocketException e){if(running)throw e;}}}private void handle(Socket socket){try(socket;var in=new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.UTF_8));var out=new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(),StandardCharsets.UTF_8))){socket.setSoTimeout(30_000);for(String line;(line=in.readLine())!=null;){out.write("ECHO "+line);out.newLine();out.flush();}}catch(IOException ignored){}}@Override public void close()throws IOException{running=false;server.close();clients.shutdownNow();}public static void main(String[]args)throws Exception{int port=args.length>0?Integer.parseInt(args[0]):9000;try(var s=new EchoServer(port)){System.out.println("Escuchando en "+s.port());s.serve();}}}
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public final class EchoServer implements AutoCloseable {
+
+    private static final int CLIENT_TIMEOUT_MS = 30_000;
+    private static final int DEFAULT_PORT = 9_000;
+
+    private final ServerSocket serverSocket;
+    private final ExecutorService clientExecutor;
+    private volatile boolean running = true;
+
+    public EchoServer(int port) throws IOException {
+        serverSocket = new ServerSocket();
+        serverSocket.bind(new InetSocketAddress("0.0.0.0", port));
+        clientExecutor = Executors.newFixedThreadPool(
+                Math.max(2, Runtime.getRuntime().availableProcessors()));
+    }
+
+    public int port() {
+        return serverSocket.getLocalPort();
+    }
+
+    public void serve() throws IOException {
+        while (running) {
+            try {
+                Socket client = serverSocket.accept();
+                clientExecutor.submit(() -> handle(client));
+            } catch (SocketException exception) {
+                if (running) {
+                    throw exception;
+                }
+            }
+        }
+    }
+
+    private void handle(Socket socket) {
+        try (socket;
+             BufferedReader input = new BufferedReader(new InputStreamReader(
+                     socket.getInputStream(),
+                     StandardCharsets.UTF_8));
+             BufferedWriter output = new BufferedWriter(new OutputStreamWriter(
+                     socket.getOutputStream(),
+                     StandardCharsets.UTF_8))) {
+            socket.setSoTimeout(CLIENT_TIMEOUT_MS);
+
+            String line;
+            while ((line = input.readLine()) != null) {
+                output.write("ECHO " + line);
+                output.newLine();
+                output.flush();
+            }
+        } catch (IOException ignored) {
+            // A single client failure must not stop the server.
+        }
+    }
+
+    @Override
+    public void close() throws IOException {
+        running = false;
+        serverSocket.close();
+        clientExecutor.shutdownNow();
+    }
+
+    public static void main(String[] args) throws IOException {
+        int port = args.length > 0
+                ? Integer.parseInt(args[0])
+                : DEFAULT_PORT;
+
+        try (EchoServer server = new EchoServer(port)) {
+            System.out.println("Escuchando en " + server.port());
+            server.serve();
+        }
+    }
+}
