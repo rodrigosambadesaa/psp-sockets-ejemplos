@@ -12,8 +12,11 @@ class EchoServerTest {
 
     @Test
     void localEchoWorksWithoutInternetGate() throws Exception {
-        try (EchoServer server = new EchoServer(0);
-             ExecutorService executor = Executors.newSingleThreadExecutor()) {
+        // Close the listening socket before waiting for the server thread to terminate.
+        // Resources are closed in reverse declaration order; otherwise executor.close()
+        // deadlocks waiting for a serve() loop still blocked in accept().
+        try (ExecutorService executor = Executors.newSingleThreadExecutor();
+             EchoServer server = new EchoServer(0)) {
             executor.submit(() -> runServer(server));
 
             String response = EchoClient.echo(
